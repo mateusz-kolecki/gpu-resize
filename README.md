@@ -1,169 +1,131 @@
 # GPU Image Resizer
 
 A desktop application for batch-resizing images using GPU acceleration via
-OpenCL.  It handles JPEG, PNG, and BMP input and always outputs JPEG.
+OpenCL. It handles JPEG, PNG, and BMP input and always outputs JPEG.
 
 Built with [Wails v2](https://wails.io) (Go + Svelte), it works on
 **Windows, Linux, and macOS** including machines with integrated GPUs.
 
 ---
 
-## Architecture
+## Features
 
-```
-gpu-resize/
-├── cmd/gpu-resize/        # Wails entry point + App bindings
-│   ├── main.go            # wails.Run, asset embed
-│   └── app.go             # App struct (Processor + Wails event bridge)
-│
-├── internal/
-│   ├── processor/         # Processor interface + shared types (no GPU code)
-│   │   └── processor.go
-│   ├── imageio/           # Decode (JPEG/PNG/BMP) + JPEG encode + path helpers
-│   │   └── imageio.go
-│   └── opencl/            # OpenCL C kernels (embedded) + cgo context wrapper
-│       ├── kernels.go
-│       └── context.go
-│
-├── pkg/resizer/           # GPUProcessor + CPUProcessor (implement Processor)
-│   └── resizer.go
-│
-└── frontend/              # Svelte UI
-    └── src/App.svelte
-```
-
-**Key design rule:** the UI (`cmd/gpu-resize/app.go`) depends only on
-`internal/processor.Processor`. To replace the Wails GUI with a CLI, web API,
-or another GUI toolkit you only need to provide a new consumer of that
-interface – no GPU or image I/O code changes required.
-
----
-
-## GPU backend: OpenCL
-
-OpenCL was chosen because it runs on every modern GPU:
-
-| Platform | OpenCL support |
-|---|---|
-| NVIDIA (discrete) | via CUDA toolkit / OpenCL ICD |
-| AMD (discrete) | ROCm or Adrenalin drivers |
-| Intel integrated (HD/Iris/Arc) | Intel OpenCL runtime (Windows/Linux/macOS) |
-| Apple Silicon / Intel Mac | built-in via `OpenCL.framework` |
-| CPU fallback | pocl (Portable OpenCL) or Intel CPU runtime |
-
-If no OpenCL platform is found the app falls back to a pure-Go CPU
-implementation transparently – the user still gets correct output, just
-without GPU acceleration. The active processor name is shown in the UI header.
+- GPU-accelerated resizing via OpenCL (NVIDIA, AMD, Intel, Apple Silicon)
+- Automatic CPU fallback when no OpenCL platform is found
+- Lanczos-3 and bilinear interpolation kernels running on the GPU
+- SIMD JPEG decode/encode via libjpeg-turbo (3–5× faster than Go stdlib)
+- Fully concurrent: `4 × NumCPU` files in-flight simultaneously, each with its
+  own OpenCL command queue — the GPU is always fed
+- Photographer-friendly UI: resolution presets, quality tiers, dark/light theme
+- Output goes to a `resized/` sub-directory next to the source images
 
 ---
 
 ## Prerequisites
 
 ### All platforms
-- Go 1.21+
-- [Wails v2 CLI](https://wails.io/docs/gettingstarted/installation): `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
-- Node.js 18+ (for the frontend build)
+- Go 1.22+
+- [Wails v2 CLI](https://wails.io/docs/gettingstarted/installation):
+  `go install github.com/wailsapp/wails/v2/cmd/wails@latest`
+- Node.js 18+
 
 ### Linux
 ```bash
 # Debian / Ubuntu
-sudo apt install ocl-icd-opencl-dev opencl-headers
+sudo apt install ocl-icd-opencl-dev opencl-headers libturbojpeg0-dev
 
-# For Intel integrated GPU
+# Intel integrated GPU
 sudo apt install intel-opencl-icd
 
-# For NVIDIA
-# Install CUDA toolkit (includes OpenCL headers and ICD)
+# NVIDIA — install CUDA toolkit (ships OpenCL ICD)
+```
+
+Build with the webkit2_41 tag (required when `webkit2gtk-4.1` is installed):
+```bash
+wails build -tags webkit2_41
 ```
 
 ### macOS
-OpenCL is included via `OpenCL.framework` – no extra install needed.
+OpenCL is provided by `OpenCL.framework` — no extra install needed.
+Install libjpeg-turbo via Homebrew:
+```bash
+brew install jpeg-turbo
+```
 
 ### Windows
-- Install your GPU vendor's driver (NVIDIA/AMD/Intel) – they all ship OpenCL.
-- Install [TDM-GCC](https://jmeubank.github.io/tdm-gcc/) or MSYS2 for cgo.
+GPU drivers (NVIDIA/AMD/Intel) ship OpenCL — no extra install needed.
+Install build tools and libraries via MSYS2 MINGW64:
+```bash
+pacman -S mingw-w64-x86_64-gcc \
+          mingw-w64-x86_64-opencl-icd \
+          mingw-w64-x86_64-opencl-headers \
+          mingw-w64-x86_64-libjpeg-turbo
+```
 
 ---
 
 ## Building
 
 ```bash
-# Development (hot-reload)
+# Development (hot-reload frontend, Go backend rebuilds on save)
 wails dev
 
-# Production build (native binary + embedded UI)
+# Production build — native binary with embedded UI
 wails build
 
-# Output: build/bin/gpu-resize (Linux/macOS) or build/bin/gpu-resize.exe
+# Linux: required if system has webkit2gtk-4.1
+wails build -tags webkit2_41
+
+# Output: build/bin/gpu-resize  (Linux/macOS)
+#         build/bin/gpu-resize.exe  (Windows)
 ```
 
 ---
 
 ## Running tests
 
-The tests cover:
-- `internal/imageio` – file I/O, path helpers, directory scanning
-- `internal/processor` – interface contract via mock, option validation
-- `pkg/resizer` – CPU and GPU processors, aspect ratio, all supported formats
-
 ```bash
-# Run all backend tests (no OpenCL required – GPU tests fall back to CPU)
+# All backend packages
 go test ./internal/... ./pkg/...
+
+# With race detector (GPU concurrency test runs 16 goroutines simultaneously)
+go test -race ./internal/... ./pkg/...
 
 # Verbose
 go test -v ./internal/... ./pkg/...
-
-# Race detector
-go test -race ./internal/... ./pkg/...
 ```
 
-> The GPU processor tests pass even without an OpenCL-capable GPU because
-> `NewGPUProcessor` gracefully falls back to the CPU implementation.
+Tests pass without a GPU — `NewGPUProcessor` transparently falls back to the
+CPU implementation when no OpenCL platform is found.
 
 ---
 
 ## Usage
 
 1. Launch the app.
-2. Click **Browse…** and select a folder containing images.
-3. Adjust **Max Width / Height** (default 1920×1080) and toggle
-   **Preserve aspect ratio** (default: on).
-4. Choose the algorithm:
-   - **Lanczos** (default) – highest quality, best for large downscales.
-   - **Bilinear** – faster, good for mild rescales.
-5. Click **Resize All Images**.
+2. Click the folder zone (or drag a folder onto it) to select a source directory.
+3. Choose a resolution preset: **Instagram 1080×1080**, **Full HD**, **2K**, or
+   **Custom** (enter your own dimensions).
+4. Select a quality tier: **Web** (75), **High** (85), or **Max** (95).
+5. Toggle **Preserve aspect ratio** (default: on) and pick the algorithm
+   (**Lanczos** for quality, **Bilinear** for speed).
+6. Click **Zmień rozmiar** (Resize).
 
 Output files are written to a `resized/` sub-directory next to the source
-images, with the same base name and a `.jpg` extension. You can override the
-output directory in the input field.
+images, with the same base name and a `.jpg` extension.
 
 ---
 
-## Extending / replacing the UI
+## CI / Releases
 
-The `processor.Processor` interface (`internal/processor/processor.go`) is the
-only contract the UI layer needs:
+A GitHub Actions workflow (`.github/workflows/build-windows.yml`) builds the
+Windows `.exe` on every push to `main` using MSYS2 + MinGW-w64. The artifact
+`gpu-resize-windows` is uploaded and available for download from the Actions
+tab.
 
-```go
-type Processor interface {
-    Name() string
-    Available() bool
-    ResizeFile(ctx context.Context, inputPath string, opts Options) (FileResult, error)
-    ResizeDir(ctx context.Context, inputDir string, opts Options) (<-chan Progress, error)
-    Close() error
-}
-```
+---
 
-A CLI front-end example:
+## Architecture
 
-```go
-p, _ := resizer.NewGPUProcessor()
-defer p.Close()
-
-ch, _ := p.ResizeDir(context.Background(), "/my/photos", processor.DefaultOptions())
-for prog := range ch {
-    if prog.Result != nil {
-        fmt.Printf("[%d/%d] %s\n", prog.Done, prog.Total, prog.Result.OutputPath)
-    }
-}
-```
+See [`docs/architecture.md`](docs/architecture.md) for a full description of
+the package layout, data flow, and design decisions.

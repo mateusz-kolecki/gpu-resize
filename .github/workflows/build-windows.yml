@@ -11,14 +11,32 @@ jobs:
   build-windows:
     runs-on: windows-latest
 
+    defaults:
+      run:
+        shell: msys2 {0}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up MSYS2 with MinGW-w64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-opencl-icd
+            mingw-w64-x86_64-opencl-headers
+            mingw-w64-x86_64-libjpeg-turbo
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+        env:
+          # Make sure the MSYS2 Go shim is not used; we want the actions-installed Go.
+          MSYSTEM: MINGW64
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -27,41 +45,18 @@ jobs:
 
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+        shell: pwsh
 
-      # Download the Khronos OpenCL SDK (headers + OpenCL.lib import library).
-      # No GPU is needed on the build machine — OpenCL.dll is provided by the
-      # driver at runtime.
-      - name: Install OpenCL SDK (Khronos)
+      # The MSYS2 mingw-w64-x86_64-* packages install into C:/msys64/mingw64/,
+      # which is already on the MinGW gcc search path.  We only need to set
+      # CGO_CFLAGS so that the cgo preamble's #include <CL/cl.h> and
+      # #include <turbojpeg.h> are found.
+      - name: Configure cgo paths and build
         run: |
-          $url = "https://github.com/KhronosGroup/OpenCL-SDK/releases/download/v2023.04.17/OpenCL-SDK-v2023.04.17-Win-x64.zip"
-          Invoke-WebRequest $url -OutFile opencl-sdk.zip
-          Expand-Archive opencl-sdk.zip -DestinationPath C:\opencl-sdk
-          # The zip extracts to a single versioned subdirectory; move it to a
-          # fixed path so subsequent steps don't need to know the version.
-          $inner = Get-ChildItem C:\opencl-sdk -Directory | Select-Object -First 1
-          Move-Item $inner.FullName C:\opencl-sdk-root
-        shell: pwsh
-
-      # libjpeg-turbo gcc64 installer ships MinGW-compatible static libs +
-      # headers into C:\libjpeg-turbo-gcc64.
-      - name: Install libjpeg-turbo
-        run: |
-          $url = "https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.0.3/libjpeg-turbo-3.0.3-gcc64.exe"
-          Invoke-WebRequest $url -OutFile libjpeg-turbo-installer.exe
-          Start-Process -FilePath libjpeg-turbo-installer.exe -ArgumentList "/S" -Wait
-        shell: pwsh
-
-      # Tell cgo where to find headers and import/static libs.
-      # Use forward slashes — mingw gcc doesn't handle backslashes in -I/-L.
-      - name: Configure cgo paths
-        run: |
-          echo "CGO_CFLAGS=-IC:/opencl-sdk-root/include -IC:/libjpeg-turbo-gcc64/include" >> $env:GITHUB_ENV
-          echo "CGO_LDFLAGS=-LC:/opencl-sdk-root/lib/x86_64 -LC:/libjpeg-turbo-gcc64/lib -lOpenCL -lturbojpeg" >> $env:GITHUB_ENV
-        shell: pwsh
-
-      - name: Build
-        run: wails build -platform windows/amd64 -o gpu-resize.exe
-        shell: pwsh
+          export CGO_CFLAGS="-I/mingw64/include"
+          export CGO_LDFLAGS="-L/mingw64/lib -lOpenCL -lturbojpeg"
+          export PATH="/mingw64/bin:$PATH"
+          wails build -platform windows/amd64 -o gpu-resize.exe
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -69,3 +64,4 @@ jobs:
           name: gpu-resize-windows
           path: build/bin/gpu-resize.exe
           if-no-files-found: error
+        shell: pwsh

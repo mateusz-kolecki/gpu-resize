@@ -1,0 +1,46 @@
+name: Test Linux
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # pocl-opencl-icd provides a CPU OpenCL device via LLVM so the GPU code
+      # path (opencl.Context, clCloneKernel, kernels) is exercised in CI even
+      # without a physical GPU.
+      - name: Install OpenCL and libjpeg-turbo
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            ocl-icd-opencl-dev \
+            opencl-headers \
+            pocl-opencl-icd \
+            libturbojpeg0-dev
+
+      - name: Verify OpenCL CPU device is visible
+        run: |
+          # clinfo prints the available platforms/devices; failure here means
+          # pocl did not install correctly.
+          sudo apt-get install -y clinfo
+          clinfo --list
+
+      - name: Build (no Wails / no UI)
+        run: go build ./internal/... ./pkg/...
+
+      - name: Test with race detector
+        run: go test -race -v -count=1 ./internal/... ./pkg/...

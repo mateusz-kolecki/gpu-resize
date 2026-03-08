@@ -1,0 +1,50 @@
+name: Test macOS
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # macOS ships OpenCL.framework so no ICD loader is needed.
+      # pocl provides a CPU device that exercises the OpenCL kernel path in CI.
+      # jpeg-turbo is the Homebrew formula for libjpeg-turbo.
+      - name: Install pocl and libjpeg-turbo
+        run: |
+          brew install pocl jpeg-turbo
+
+      # Homebrew installs to /opt/homebrew on Apple Silicon, /usr/local on Intel.
+      # Export the right CGO flags so cgo finds the headers and libs.
+      - name: Set CGO paths
+        run: |
+          PREFIX=$(brew --prefix)
+          echo "CGO_CFLAGS=-I${PREFIX}/include" >> "$GITHUB_ENV"
+          echo "CGO_LDFLAGS=-L${PREFIX}/lib -lturbojpeg" >> "$GITHUB_ENV"
+          # pocl installs its ICD file under the brew prefix; tell the OpenCL
+          # loader where to find it.
+          echo "OCL_ICD_VENDORS=${PREFIX}/etc/OpenCL/vendors" >> "$GITHUB_ENV"
+
+      - name: Verify OpenCL CPU device is visible
+        run: |
+          brew install clinfo || true
+          clinfo --list || true   # non-fatal: macOS may expose its own GPU
+
+      - name: Build (no Wails / no UI)
+        run: go build ./internal/... ./pkg/...
+
+      - name: Test with race detector
+        run: go test -race -v -count=1 ./internal/... ./pkg/...
