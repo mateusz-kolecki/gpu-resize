@@ -19,24 +19,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up MSYS2 with MinGW-w64 toolchain
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: MINGW64
-          update: true
-          install: >-
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-opencl-icd
-            mingw-w64-x86_64-opencl-headers
-            mingw-w64-x86_64-libjpeg-turbo
-
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-        env:
-          # Make sure the MSYS2 Go shim is not used; we want the actions-installed Go.
-          MSYSTEM: MINGW64
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -46,6 +32,21 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
         shell: pwsh
+
+      - name: Set up MSYS2 with MinGW-w64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          # path-type: inherit makes MSYS2 inherit the Windows PATH (translated to
+          # Unix paths), so the actions-installed Go and the Wails binary installed
+          # by the previous step are visible inside the msys2 shell.
+          path-type: inherit
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-opencl-icd
+            mingw-w64-x86_64-opencl-headers
+            mingw-w64-x86_64-libjpeg-turbo
 
       # The MSYS2 mingw-w64-x86_64-* packages install into C:/msys64/mingw64/,
       # which is already on the MinGW gcc search path.  We only need to set

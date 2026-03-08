@@ -22,21 +22,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
       - name: Set up MSYS2 with MinGW-w64 toolchain
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
           update: true
+          # path-type: inherit makes MSYS2 inherit the Windows PATH (translated to
+          # Unix paths), so the actions-installed Go is visible inside the msys2 shell.
+          path-type: inherit
           install: >-
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-opencl-icd
             mingw-w64-x86_64-opencl-headers
             mingw-w64-x86_64-libjpeg-turbo
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
 
       # Install Intel CPU OpenCL runtime so the GPU code path is exercised in CI.
       # The runtime registers itself via the Khronos ICD registry key so that
