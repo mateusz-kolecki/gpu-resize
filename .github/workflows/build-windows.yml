@@ -59,9 +59,20 @@ jobs:
           export PATH="/mingw64/bin:$PATH"
           wails build -platform windows/amd64 -o gpu-resize.exe
 
+      # Copy all MinGW runtime DLLs that gpu-resize.exe depends on into build/bin/
+      # so the artifact is self-contained and runs on machines without MSYS2.
+      # `ldd` lists all DLL dependencies; we copy only those that live under
+      # /mingw64/bin (i.e. MinGW-provided — not Windows system DLLs).
+      - name: Bundle runtime DLLs
+        run: |
+          ldd build/bin/gpu-resize.exe \
+            | grep '/mingw64/bin/' \
+            | sed 's|.* => \(/mingw64/bin/[^ ]*\).*|\1|' \
+            | xargs -I{} cp {} build/bin/
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: gpu-resize-windows
-          path: build/bin/gpu-resize.exe
+          path: build/bin/
           if-no-files-found: error
