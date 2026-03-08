@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/mateusz/gpu-resize/internal/applog"
 	"github.com/mateusz/gpu-resize/internal/imageio"
 	cl "github.com/mateusz/gpu-resize/internal/opencl"
 	"github.com/mateusz/gpu-resize/internal/processor"
@@ -40,16 +41,21 @@ type GPUProcessor struct {
 // If OpenCL is unavailable it returns a CPUProcessor wrapped as a
 // GPUProcessor so callers never need to branch.
 func NewGPUProcessor() (*GPUProcessor, error) {
+	applog.Printf("NewGPUProcessor: calling PickBestDevice")
 	dev, err := cl.PickBestDevice()
 	if err != nil {
-		// No OpenCL platform – use CPU fallback transparently.
+		applog.Errorf("NewGPUProcessor: PickBestDevice failed: %v — using CPU fallback", err)
 		return &GPUProcessor{cpuFB: NewCPUProcessor()}, nil
 	}
+	applog.Printf("NewGPUProcessor: device found: name=%q isGPU=%v", dev.Name(), dev.IsGPU())
 
+	applog.Printf("NewGPUProcessor: calling NewContext")
 	clCtx, err := cl.NewContext(dev)
 	if err != nil {
+		applog.Errorf("NewGPUProcessor: NewContext failed: %v — using CPU fallback", err)
 		return &GPUProcessor{cpuFB: NewCPUProcessor()}, nil
 	}
+	applog.Printf("NewGPUProcessor: OpenCL context ready, device=%q", clCtx.DeviceName())
 
 	return &GPUProcessor{clCtx: clCtx}, nil
 }
@@ -79,6 +85,7 @@ func (g *GPUProcessor) ResizeFile(ctx context.Context, inputPath string, opts pr
 	if isJPEG {
 		pix, w, h, err := turbojpeg.DecodeRGBA(inputPath)
 		if err != nil {
+			applog.Errorf("ResizeFile: turbojpeg.DecodeRGBA failed: file=%q err=%v", inputPath, err)
 			return processor.FileResult{InputPath: inputPath, Err: err}, err
 		}
 		img := &image.RGBA{Pix: pix, Stride: w * 4, Rect: image.Rect(0, 0, w, h)}
@@ -87,6 +94,7 @@ func (g *GPUProcessor) ResizeFile(ctx context.Context, inputPath string, opts pr
 		var err error
 		src, err = imageio.Decode(inputPath)
 		if err != nil {
+			applog.Errorf("ResizeFile: imageio.Decode failed: file=%q err=%v", inputPath, err)
 			return processor.FileResult{InputPath: inputPath, Err: err}, err
 		}
 	}
@@ -107,6 +115,7 @@ func (g *GPUProcessor) ResizeFile(ctx context.Context, inputPath string, opts pr
 	}
 
 	if err != nil {
+		applog.Errorf("ResizeFile: GPU resize failed: file=%q algo=%s err=%v", inputPath, opts.Algorithm, err)
 		return processor.FileResult{InputPath: inputPath, Err: err}, err
 	}
 
@@ -116,10 +125,12 @@ func (g *GPUProcessor) ResizeFile(ctx context.Context, inputPath string, opts pr
 	// readResult always returns *image.RGBA so we can access Pix directly.
 	if rgba, ok := resized.(*image.RGBA); ok {
 		if err := turbojpeg.EncodeRGBA(outPath, rgba.Pix, rgba.Bounds().Dx(), rgba.Bounds().Dy(), opts.JPEGQuality); err != nil {
+			applog.Errorf("ResizeFile: turbojpeg.EncodeRGBA failed: file=%q err=%v", inputPath, err)
 			return processor.FileResult{InputPath: inputPath, Err: err}, err
 		}
 	} else {
 		if err := imageio.EncodeJPEG(outPath, resized, opts.JPEGQuality); err != nil {
+			applog.Errorf("ResizeFile: imageio.EncodeJPEG failed: file=%q err=%v", inputPath, err)
 			return processor.FileResult{InputPath: inputPath, Err: err}, err
 		}
 	}
