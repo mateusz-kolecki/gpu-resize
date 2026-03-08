@@ -12,6 +12,10 @@ package opencl
 // graphics. Suppresses the CL_TARGET_OPENCL_VERSION pragma note and opts out
 // of the deprecated clCreateCommandQueue warning (use the 2.0 variant).
 #define CL_TARGET_OPENCL_VERSION 210
+// Suppress the deprecation warning for clCreateCommandQueue, which we use as a
+// fallback for OpenCL 1.x drivers that don't support
+// clCreateCommandQueueWithProperties (OpenCL 2.0+).
+#define CL_USE_DEPRECATED_OPENCL_1_2_APIS
 
 #ifdef __APPLE__
   #include <OpenCL/opencl.h>
@@ -365,11 +369,21 @@ func (c *Context) Close() {
 
 // newQueue creates a fresh in-order command queue for one resize job.
 // Command queues are cheap to create and allow true parallel dispatch.
+//
+// clCreateCommandQueueWithProperties is OpenCL 2.0+. Many Windows GPU drivers
+// only support OpenCL 1.2, in which case the call returns CL_INVALID_VALUE
+// (-30). We fall back to the deprecated-but-widely-supported
+// clCreateCommandQueue (OpenCL 1.0/1.1/1.2) so the GPU is still usable.
 func (c *Context) newQueue() (C.cl_command_queue, error) {
 	var errCode C.cl_int
 	q := C.clCreateCommandQueueWithProperties(c.ctx, c.device.device, nil, &errCode)
+	if errCode == C.CL_SUCCESS {
+		return q, nil
+	}
+	// Fall back to the OpenCL 1.x API.
+	q = C.clCreateCommandQueue(c.ctx, c.device.device, 0, &errCode)
 	if errCode != C.CL_SUCCESS {
-		return nil, fmt.Errorf("opencl: clCreateCommandQueueWithProperties: %d", errCode)
+		return nil, fmt.Errorf("opencl: clCreateCommandQueue: %d", errCode)
 	}
 	return q, nil
 }

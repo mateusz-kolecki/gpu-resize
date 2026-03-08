@@ -194,10 +194,16 @@ func resizeDir(ctx context.Context, p processor.Processor, inputDir string, opts
 		concurrency = runtime.NumCPU() * 4
 	}
 
+	// Buffer large enough for one completion event per file plus the initial
+	// "started" event. Each goroutine sends exactly one event (after the file
+	// finishes), so the buffer is never exhausted regardless of concurrency.
 	ch := make(chan processor.Progress, len(files)+1)
 
 	go func() {
 		defer close(ch)
+
+		// Emit an initial event so the frontend immediately knows the total.
+		ch <- processor.Progress{Done: 0, Total: len(files)}
 
 		sem := make(chan struct{}, concurrency)
 		var wg sync.WaitGroup
@@ -217,10 +223,6 @@ func resizeDir(ctx context.Context, p processor.Processor, inputDir string, opts
 			go func(path string) {
 				defer wg.Done()
 				defer func() { <-sem }()
-
-				mu.Lock()
-				ch <- processor.Progress{Done: done, Total: len(files), Current: path}
-				mu.Unlock()
 
 				res, _ := p.ResizeFile(ctx, path, opts)
 
