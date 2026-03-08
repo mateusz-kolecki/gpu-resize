@@ -27,8 +27,8 @@ func makeTestImage(w, h int, c color.RGBA) image.Image {
 
 func TestIsSupportedFile(t *testing.T) {
 	cases := []struct {
-		path    string
-		want    bool
+		path string
+		want bool
 	}{
 		{"photo.jpg", true},
 		{"photo.JPG", true},
@@ -127,16 +127,16 @@ func TestEncodeJPEGCreatesParentDir(t *testing.T) {
 }
 
 func TestOutputPath_DefaultResizedSubdir(t *testing.T) {
-	got := imageio.OutputPath("/home/user/photos/image.png", "")
-	want := "/home/user/photos/resized/image.jpg"
+	got := imageio.OutputPath(filepath.FromSlash("/home/user/photos/image.png"), "")
+	want := filepath.FromSlash("/home/user/photos/resized/image.jpg")
 	if got != want {
 		t.Errorf("OutputPath = %q, want %q", got, want)
 	}
 }
 
 func TestOutputPath_CustomDir(t *testing.T) {
-	got := imageio.OutputPath("/home/user/photos/vacation.bmp", "/tmp/out")
-	want := "/tmp/out/vacation.jpg"
+	got := imageio.OutputPath(filepath.FromSlash("/home/user/photos/vacation.bmp"), filepath.FromSlash("/tmp/out"))
+	want := filepath.FromSlash("/tmp/out/vacation.jpg")
 	if got != want {
 		t.Errorf("OutputPath = %q, want %q", got, want)
 	}
@@ -150,9 +150,10 @@ func TestOutputPath_ExtensionReplaced(t *testing.T) {
 		{"/a/b/foo.png", "/a/b/resized/foo.jpg"},
 	}
 	for _, tc := range cases {
-		got := imageio.OutputPath(tc.in, "")
-		if got != tc.out {
-			t.Errorf("OutputPath(%q) = %q, want %q", tc.in, got, tc.out)
+		got := imageio.OutputPath(filepath.FromSlash(tc.in), "")
+		want := filepath.FromSlash(tc.out)
+		if got != want {
+			t.Errorf("OutputPath(%q) = %q, want %q", tc.in, got, want)
 		}
 	}
 }

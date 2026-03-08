@@ -20,25 +20,26 @@ jobs:
         with:
           go-version-file: go.mod
 
-      # macOS ships OpenCL.framework but its headers cap at OpenCL 1.2, which
-      # doesn't include clCloneKernel (2.1) or clCreateCommandQueueWithProperties (2.0).
-      # opencl-headers provides the up-to-date Khronos headers.
-      # pocl provides a CPU device that exercises the OpenCL kernel path in CI.
+      # macOS ships OpenCL.framework but it implements only OpenCL 1.2 and
+      # doesn't export clCloneKernel (2.1) or clCreateCommandQueueWithProperties (2.0).
+      # opencl-icd-loader is the Khronos ICD loader with full OpenCL 3.0 API surface.
+      # opencl-headers provides the matching Khronos 2.1+ header files.
+      # pocl provides a CPU device so the GPU code path is exercised in CI.
       # jpeg-turbo is the Homebrew formula for libjpeg-turbo.
       - name: Install dependencies
         run: |
-          brew install opencl-headers pocl jpeg-turbo
+          brew install opencl-icd-loader opencl-headers pocl jpeg-turbo
 
       # Homebrew installs to /opt/homebrew on Apple Silicon, /usr/local on Intel.
-      # Export the right CGO flags so cgo finds the headers and libs.
-      # opencl-headers must come before any system include path so that
-      # CL/cl.h resolves to the Khronos 2.1 version, not Apple's 1.2 version.
+      # Link against the Khronos ICD loader (not -framework OpenCL) so that the
+      # full OpenCL 2.x symbol set is available at link time.
       - name: Set CGO paths
         run: |
           PREFIX=$(brew --prefix)
           OCL_HEADERS=$(brew --prefix opencl-headers)
+          OCL_LOADER=$(brew --prefix opencl-icd-loader)
           echo "CGO_CFLAGS=-I${OCL_HEADERS}/include -I${PREFIX}/include" >> "$GITHUB_ENV"
-          echo "CGO_LDFLAGS=-L${PREFIX}/lib -lturbojpeg -framework OpenCL" >> "$GITHUB_ENV"
+          echo "CGO_LDFLAGS=-L${OCL_LOADER}/lib -lOpenCL -L${PREFIX}/lib -lturbojpeg" >> "$GITHUB_ENV"
           # pocl installs its ICD file under the brew prefix; tell the OpenCL
           # loader where to find it.
           echo "OCL_ICD_VENDORS=${PREFIX}/etc/OpenCL/vendors" >> "$GITHUB_ENV"
