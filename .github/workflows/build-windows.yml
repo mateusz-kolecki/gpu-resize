@@ -28,29 +28,35 @@ jobs:
       - name: Install Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
-      # The Khronos OpenCL SDK provides the headers and the import lib
-      # (OpenCL.lib) that links against the driver at runtime — no GPU needed
-      # on the build machine.
+      # Download the Khronos OpenCL SDK (headers + OpenCL.lib import library).
+      # No GPU is needed on the build machine — OpenCL.dll is provided by the
+      # driver at runtime.
       - name: Install OpenCL SDK (Khronos)
         run: |
-          choco install opencl-sdk -y --no-progress
+          $url = "https://github.com/KhronosGroup/OpenCL-SDK/releases/download/v2023.04.17/OpenCL-SDK-v2023.04.17-Win-x64.zip"
+          Invoke-WebRequest $url -OutFile opencl-sdk.zip
+          Expand-Archive opencl-sdk.zip -DestinationPath C:\opencl-sdk
+          # The zip extracts to a single versioned subdirectory; move it to a
+          # fixed path so subsequent steps don't need to know the version.
+          $inner = Get-ChildItem C:\opencl-sdk -Directory | Select-Object -First 1
+          Move-Item $inner.FullName C:\opencl-sdk-root
         shell: pwsh
 
-      # libjpeg-turbo official installer ships static libs + headers.
+      # libjpeg-turbo gcc64 installer ships MinGW-compatible static libs +
+      # headers into C:\libjpeg-turbo-gcc64.
       - name: Install libjpeg-turbo
         run: |
-          $url = "https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.0.3/libjpeg-turbo-3.0.3-vc64.exe"
+          $url = "https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.0.3/libjpeg-turbo-3.0.3-gcc64.exe"
           Invoke-WebRequest $url -OutFile libjpeg-turbo-installer.exe
           Start-Process -FilePath libjpeg-turbo-installer.exe -ArgumentList "/S" -Wait
         shell: pwsh
 
-      # Tell cgo where to find OpenCL and libjpeg-turbo headers + libs.
-      # The Khronos choco package installs to C:\OCL_SDK_Light.
-      # libjpeg-turbo installs to C:\libjpeg-turbo64.
+      # Tell cgo where to find headers and import/static libs.
+      # Use forward slashes — mingw gcc doesn't handle backslashes in -I/-L.
       - name: Configure cgo paths
         run: |
-          echo "CGO_CFLAGS=-I`"C:\OCL_SDK_Light\include`" -I`"C:\libjpeg-turbo64\include`"" >> $env:GITHUB_ENV
-          echo "CGO_LDFLAGS=-L`"C:\OCL_SDK_Light\lib\x86_64`" -L`"C:\libjpeg-turbo64\lib`" -lOpenCL -lturbojpeg-static" >> $env:GITHUB_ENV
+          echo "CGO_CFLAGS=-IC:/opencl-sdk-root/include -IC:/libjpeg-turbo-gcc64/include" >> $env:GITHUB_ENV
+          echo "CGO_LDFLAGS=-LC:/opencl-sdk-root/lib/x86_64 -LC:/libjpeg-turbo-gcc64/lib -lOpenCL -lturbojpeg" >> $env:GITHUB_ENV
         shell: pwsh
 
       - name: Build
