@@ -1,0 +1,21 @@
+{
+  "name": "GPU Image Resizer",
+  "outputfilename": "gpu-resize",
+  "frontenddir": "frontend",
+  "wailsjsdir": "frontend/src/lib",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "version": "2",
+  "info": {
+    "companyName": "",
+    "productName": "GPU Image Resizer",
+    "productVersion": "1.0.0",
+    "copyright": "",
+    "comments": "Batch image resizer powered by OpenCL"
+  },
+  "author": {
+    "name": "",
+    "email": ""
+  }
+}
