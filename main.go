@@ -36,6 +36,13 @@ func main() {
 		Bind: []interface{}{
 			app,
 		},
+		Debug: options.Debug{
+			// Enabled only in builds with -tags debugui; always false in
+			// production.  Opens WebView2 DevTools automatically so JS console
+			// output and event delivery can be inspected on Windows without any
+			// extra tooling.
+			OpenInspectorOnStartup: debugOpenInspector(),
+		},
 	})
 	if err != nil {
 		panic(err)

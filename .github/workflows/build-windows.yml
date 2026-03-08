@@ -76,3 +76,64 @@ jobs:
           name: gpu-resize-windows
           path: build/bin/
           if-no-files-found: error
+
+  # Debug build: same as above but compiled with -tags debugui so that
+  # WebView2 DevTools open automatically on startup.  Download this artifact
+  # when you need to inspect JS console output or event delivery on Windows.
+  build-windows-debug:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+        shell: pwsh
+
+      - name: Set up MSYS2 with MinGW-w64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          path-type: inherit
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-opencl-icd
+            mingw-w64-x86_64-opencl-headers
+            mingw-w64-x86_64-libjpeg-turbo
+
+      - name: Configure cgo paths and build (debug)
+        run: |
+          export CGO_CFLAGS="-I/mingw64/include"
+          export CGO_LDFLAGS="-L/mingw64/lib -lOpenCL -lturbojpeg"
+          export PATH="/mingw64/bin:$PATH"
+          wails build -platform windows/amd64 -tags debugui -o gpu-resize-debug.exe
+
+      - name: Bundle runtime DLLs
+        run: |
+          ldd build/bin/gpu-resize-debug.exe \
+            | grep '/mingw64/bin/' \
+            | sed 's|.* => \(/mingw64/bin/[^ ]*\).*|\1|' \
+            | xargs -I{} cp {} build/bin/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gpu-resize-windows-debug
+          path: build/bin/
+          if-no-files-found: error

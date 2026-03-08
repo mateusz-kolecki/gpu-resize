@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
 
 	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -39,10 +40,15 @@ func (a *App) startup(ctx context.Context) {
 	if err != nil {
 		applog.Errorf("startup: NewGPUProcessor returned error: %v — falling back to CPU", err)
 		a.proc = resizer.NewCPUProcessor()
-		return
+	} else {
+		a.proc = gpu
 	}
-	a.proc = gpu
 	applog.Printf("startup: processor selected: %s", a.proc.Name())
+
+	// Notify the frontend that the backend is ready. The frontend waits for
+	// this event before calling ProcessorInfo() so it never races with the
+	// GPU/OpenCL initialisation that happens above.
+	wailsruntime.EventsEmit(ctx, "app:ready", a.proc.Name())
 }
 
 // shutdown is called by the Wails runtime when the window is closing.
@@ -126,6 +132,11 @@ func (a *App) ResizeDir(inputDir string, opts processor.Options) error {
 			}
 			applog.Printf("ResizeDir: progress done=%d total=%d current=%q", prog.Done, prog.Total, prog.Current)
 			wailsruntime.EventsEmit(a.ctx, ResizeProgressEvent, payload)
+			// Yield for one frame so WebView2 can dispatch and render each
+			// progress event before the next one arrives. Without this, the
+			// JS microtask queue batches all events into a single tick and
+			// Svelte skips straight to the finished state with no animation.
+			time.Sleep(16 * time.Millisecond)
 		}
 		applog.Printf("ResizeDir: batch complete, emitting finished event")
 		wailsruntime.EventsEmit(a.ctx, ResizeProgressEvent, ProgressPayload{Finished: true})

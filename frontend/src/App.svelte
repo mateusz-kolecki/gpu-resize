@@ -4,10 +4,9 @@
     SelectDirectory,
     ResizeDir,
     CancelResize,
-    ProcessorInfo,
     DefaultOptions,
   } from './lib/wailsjs/go/main/App.js'
-  import { EventsOn } from './lib/wailsjs/runtime/runtime.js'
+  import { EventsOn, EventsOnce } from './lib/wailsjs/runtime/runtime.js'
 
   // ---- state ----------------------------------------------------------------
   let inputDir = ''
@@ -62,8 +61,15 @@
 
   // ---- lifecycle ------------------------------------------------------------
   onMount(async () => {
-    processorName = await ProcessorInfo()
-    processorIsGPU = processorName.toLowerCase().includes('gpu')
+    // Wait for the backend to finish GPU/OpenCL initialisation before reading
+    // the processor name. Go emits "app:ready" with the name as payload once
+    // startup() completes, so we never race with the ~0.6 s OpenCL init.
+    EventsOnce('app:ready', (name) => {
+      console.log('[gpu-resize] app:ready received, processor:', name)
+      processorName = name
+      processorIsGPU = name.toLowerCase().includes('gpu')
+    })
+
     const defaults = await DefaultOptions()
     opts = {
       TargetWidth:    defaults.TargetWidth,
@@ -76,6 +82,7 @@
     }
 
     unlisten = EventsOn('resize:progress', (payload) => {
+      console.log('[gpu-resize] resize:progress received:', JSON.stringify(payload))
       if (payload.finished) {
         running = false
         finished = true
