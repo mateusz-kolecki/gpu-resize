@@ -64,4 +64,3 @@ jobs:
           name: gpu-resize-windows
           path: build/bin/gpu-resize.exe
           if-no-files-found: error
-        shell: pwsh
