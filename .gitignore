@@ -5,6 +5,7 @@ frontend/src/lib/wailsjs/
 *.o
 *.a
 *.pprof
+*.log
 .idea/
 .vscode/
 
